@@ -25,7 +25,7 @@ else:
 # Define the migration SQL
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS devcontainers (
-  id INTEGER NOT NULL,
+  id SERIAL PRIMARY KEY,
   url VARCHAR,
   devcontainer_json TEXT,
   devcontainer_url VARCHAR,
@@ -34,9 +34,33 @@ CREATE TABLE IF NOT EXISTS devcontainers (
   model TEXT,
   embedding TEXT,
   generated BOOLEAN,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  PRIMARY KEY (id)
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+"""
+
+# Add migration to fix existing table if it was created with the wrong schema
+ALTER_TABLE_SQL = """
+DO $$ 
+BEGIN
+  -- Check if id column exists and doesn't have a sequence
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'devcontainers' 
+    AND column_name = 'id'
+    AND column_default IS NULL
+  ) THEN
+    -- Drop the existing primary key constraint
+    ALTER TABLE devcontainers DROP CONSTRAINT IF EXISTS devcontainers_pkey;
+    
+    -- Drop the id column
+    ALTER TABLE devcontainers DROP COLUMN IF EXISTS id;
+    
+    -- Add the id column with SERIAL (auto-increment)
+    ALTER TABLE devcontainers ADD COLUMN id SERIAL PRIMARY KEY;
+    
+    RAISE NOTICE 'Table devcontainers updated: id column now uses SERIAL';
+  END IF;
+END $$;
 """
 
 def main():
@@ -54,6 +78,10 @@ def main():
         # Execute the CREATE TABLE statement
         cursor.execute(CREATE_TABLE_SQL)
         logging.info("devcontainers table created (if it didn't exist already).")
+        
+        # Execute the ALTER TABLE statement to fix existing tables
+        cursor.execute(ALTER_TABLE_SQL)
+        logging.info("Migration completed: Table schema updated if needed.")
 
         # Optionally, verify the table creation
         cursor.execute("""
